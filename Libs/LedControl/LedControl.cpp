@@ -1,0 +1,300 @@
+/*
+ *    LedControl.cpp - A library for controling Leds with a MAX7219/MAX7221
+ *    Copyright (c) 2007 Eberhard Fahle
+ * 
+ *    Permission is hereby granted, free of charge, to any person
+ *    obtaining a copy of this software and associated documentation
+ *    files (the "Software"), to deal in the Software without
+ *    restriction, including without limitation the rights to use,
+ *    copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *    copies of the Software, and to permit persons to whom the
+ *    Software is furnished to do so, subject to the following
+ *    conditions:
+ * 
+ *    This permission notice shall be included in all copies or 
+ *    substantial portions of the Software.
+ * 
+ *    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ *    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ *    OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ *    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ *    HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ *    WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ *    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ *    OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+
+#include "LedControl.h"
+
+//the opcodes for the MAX7221 and MAX7219
+#define OP_NOOP   0
+#define OP_DIGIT0 1
+#define OP_DIGIT1 2
+#define OP_DIGIT2 3
+#define OP_DIGIT3 4
+#define OP_DIGIT4 5
+#define OP_DIGIT5 6
+#define OP_DIGIT6 7
+#define OP_DIGIT7 8
+#define OP_DECODEMODE  9
+#define OP_INTENSITY   10
+#define OP_SCANLIMIT   11
+#define OP_SHUTDOWN    12
+#define OP_DISPLAYTEST 15
+
+
+uint8_t led_alphabet[][8]={
+		{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},/*" ",0*/
+		{0x08,0x08,0x08,0x08,0x08,0x00,0x00,0x08},/*"!",1*/
+		{0x14,0x14,0x28,0x00,0x00,0x00,0x00,0x00},/*""",2*/
+		{0x28,0x28,0x7C,0x28,0x28,0x7C,0x28,0x28},/*"#",3*/
+		{0x38,0x54,0x50,0x30,0x18,0x14,0x54,0x38},/*"$",4*/
+		{0x24,0x54,0x58,0x54,0x3A,0x1A,0x2A,0x24},/*"%",5*/
+		{0x10,0x28,0x28,0x36,0x54,0x54,0x4A,0x34},/*"&",6*/
+		{0x10,0x10,0x20,0x00,0x00,0x00,0x00,0x00},/*"'",7*/
+		{0x00,0x08,0x10,0x10,0x10,0x10,0x10,0x08},/*"(",8*/
+		{0x20,0x20,0x10,0x10,0x10,0x10,0x20,0x20},/*")",9*/
+		{0x00,0x00,0x10,0x38,0x10,0x28,0x00,0x00},/*"*",10*/
+		{0x00,0x00,0x10,0x10,0x7C,0x10,0x10,0x00},/*"+",11*/
+		{0x00,0x00,0x00,0x00,0x20,0x40,0x00,0x00},/*",",12*/
+		{0x00,0x00,0x00,0x00,0xE0,0x00,0x00,0x00},/*"-",13*/
+		{0x00,0x00,0x00,0x00,0x20,0x00,0x00,0x00},/*".",14*/
+		{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},/*"/",15*/
+		{0x38,0x44,0x44,0x44,0x44,0x44,0x44,0x38},/*"0",16*/
+		{0x10,0x30,0x10,0x10,0x10,0x10,0x10,0x38},/*"1",17*/
+		{0x38,0x44,0x44,0x08,0x10,0x20,0x40,0x7C},/*"2",18*/
+		{0x38,0x44,0x04,0x18,0x04,0x04,0x44,0x38},/*"3",19*/
+		{0x08,0x18,0x18,0x28,0x48,0x7C,0x08,0x1C},/*"4",20*/
+		{0x7C,0x40,0x40,0x78,0x44,0x04,0x44,0x38},/*"5",21*/
+		{0x18,0x24,0x40,0x58,0x64,0x44,0x44,0x38},/*"6",22*/
+		{0x3C,0x04,0x08,0x08,0x10,0x10,0x10,0x10},/*"7",23*/
+		{0x38,0x44,0x44,0x38,0x44,0x44,0x44,0x38},/*"8",24*/
+		{0x38,0x44,0x44,0x4C,0x34,0x04,0x48,0x30},/*"9",25*/
+		{0x00,0x00,0x00,0x20,0x00,0x00,0x20,0x00},/*":",26*/
+		{0x00,0x00,0x00,0x20,0x00,0x00,0x20,0x40},/*";",27*/
+		{0x00,0x00,0x06,0x38,0xC0,0x38,0x06,0x00},/*"<",28*/
+		{0x00,0x00,0x00,0x7E,0x00,0x7E,0x00,0x00},/*"=",29*/
+		{0x00,0x00,0x60,0x1C,0x03,0x1C,0x60,0x00},/*">",30*/
+		{0x00,0x30,0x48,0x08,0x30,0x00,0x20,0x00},/*"?",31*/
+		{0x00,0x3C,0x5E,0xA5,0xA5,0xA5,0x7E,0x3C},/*"@",32*/
+		{0x10,0x10,0x18,0x28,0x28,0x3C,0x24,0x66},/*"A",33*/
+		{0x78,0x24,0x24,0x38,0x24,0x24,0x24,0x78},/*"B",34*/
+		{0x3C,0x44,0x40,0x40,0x40,0x40,0x44,0x38},/*"C",35*/
+		{0x78,0x24,0x24,0x24,0x24,0x24,0x24,0x78},/*"D",36*/
+		{0x7C,0x24,0x28,0x38,0x28,0x20,0x24,0x7C},/*"E",37*/
+		{0x7C,0x24,0x28,0x38,0x28,0x20,0x20,0x70},/*"F",38*/
+		{0x1C,0x24,0x40,0x40,0x4E,0x44,0x24,0x18},/*"G",39*/
+		{0x66,0x24,0x24,0x3C,0x24,0x24,0x24,0x66},/*"H",40*/
+		{0x7C,0x10,0x10,0x10,0x10,0x10,0x10,0x7C},/*"I",41*/
+		{0x3E,0x08,0x08,0x08,0x08,0x08,0x08,0x08},/*"J",42*/
+		{0x76,0x24,0x28,0x30,0x28,0x24,0x24,0x76},/*"K",43*/
+		{0x70,0x20,0x20,0x20,0x20,0x20,0x22,0x7E},/*"L",44*/
+		{0xEE,0x6C,0x6C,0x6C,0x54,0x54,0x54,0xD6},/*"M",45*/
+		{0x6E,0x24,0x34,0x34,0x2C,0x2C,0x24,0x74},/*"N",46*/
+		{0x38,0x44,0x44,0x44,0x44,0x44,0x44,0x38},/*"O",47*/
+		{0x78,0x24,0x24,0x38,0x20,0x20,0x20,0x70},/*"P",48*/
+		{0x38,0x44,0x44,0x44,0x44,0x74,0x4C,0x38},/*"Q",49*/
+		{0x78,0x24,0x24,0x38,0x28,0x24,0x24,0x76},/*"R",50*/
+		{0x3C,0x44,0x40,0x30,0x08,0x04,0x44,0x78},/*"S",51*/
+		{0x7C,0x54,0x10,0x10,0x10,0x10,0x10,0x38},/*"T",52*/
+		{0x66,0x24,0x24,0x24,0x24,0x24,0x24,0x18},/*"U",53*/
+		{0x66,0x24,0x24,0x28,0x28,0x18,0x10,0x10},/*"V",54*/
+		{0x54,0x54,0x54,0x54,0x38,0x28,0x28,0x28},/*"W",55*/
+		{0x6C,0x28,0x28,0x10,0x10,0x28,0x28,0x6C},/*"X",56*/
+		{0x6C,0x28,0x28,0x28,0x10,0x10,0x10,0x38},/*"Y",57*/
+		{0x7C,0x48,0x08,0x10,0x10,0x20,0x24,0x7C},/*"Z",58*/
+};
+LedControl::LedControl(int dataPin, int clkPin, int csPin, int numDevices) {
+    SPI_MOSI=dataPin;
+    SPI_CLK=clkPin;
+    SPI_CS=csPin;
+    if(numDevices<=0 || numDevices>8 )
+        numDevices=8;
+    maxDevices=numDevices;
+    pinMode(SPI_MOSI,OUTPUT);
+    pinMode(SPI_CLK,OUTPUT);
+    pinMode(SPI_CS,OUTPUT);
+    digitalWrite(SPI_CS,HIGH);
+    SPI_MOSI=dataPin;
+    for(int i=0;i<64;i++) 
+        status[i]=0x00;
+    for(int i=0;i<maxDevices;i++) {
+        spiTransfer(i,OP_DISPLAYTEST,0);
+        //scanlimit is set to max on startup
+        setScanLimit(i,7);
+        //decode is done in source
+        spiTransfer(i,OP_DECODEMODE,0);
+        clearDisplay(i);
+        //we go into shutdown-mode on startup
+        shutdown(i,true);
+    }
+}
+
+int LedControl::getDeviceCount() {
+    return maxDevices;
+}
+
+void LedControl::shutdown(int addr, bool b) {
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(b)
+        spiTransfer(addr, OP_SHUTDOWN,0);
+    else
+        spiTransfer(addr, OP_SHUTDOWN,1);
+}
+
+void LedControl::setScanLimit(int addr, int limit) {
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(limit>=0 && limit<8)
+        spiTransfer(addr, OP_SCANLIMIT,limit);
+}
+
+void LedControl::setIntensity(int addr, int intensity) {
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(intensity>=0 && intensity<16)	
+        spiTransfer(addr, OP_INTENSITY,intensity);
+}
+
+void LedControl::clearDisplay(int addr) {
+    int offset;
+
+    if(addr<0 || addr>=maxDevices)
+        return;
+    offset=addr*8;
+    for(int i=0;i<8;i++) {
+        status[offset+i]=0;
+        spiTransfer(addr, i+1,status[offset+i]);
+    }
+}
+
+void LedControl::setLed(int addr, int row, int column, boolean state) {
+    int offset;
+    byte val=0x00;
+
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(row<0 || row>7 || column<0 || column>7)
+        return;
+    offset=addr*8;
+    val=B10000000 >> column;
+    if(state)
+        status[offset+row]=status[offset+row]|val;
+    else {
+        val=~val;
+        status[offset+row]=status[offset+row]&val;
+    }
+    spiTransfer(addr, row+1,status[offset+row]);
+}
+
+void LedControl::setRow(int addr, int row, byte value) {
+    int offset;
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(row<0 || row>7)
+        return;
+    offset=addr*8;
+    status[offset+row]=value;
+    spiTransfer(addr, row+1,status[offset+row]);
+}
+
+void LedControl::show(uint8_t ptr)
+{
+	for(uint8_t i=0;i<8;i++)
+	{
+		this->setRow(0, i, led_alphabet[ptr-' '][i]);
+	}
+}
+
+
+
+//void LedControl::setRow(int addr, int row, uint8_t value[]) {
+//    int offset;
+//    unsigned char i;
+//    if(addr<0 || addr>=maxDevices)
+//        return;
+//    if(row<0 || row>7)
+//        return;
+//    for(i=0;i<row;i++)
+//    {
+//    	  offset=addr*8;
+//    status[offset+row]=value[i];
+//    spiTransfer(addr, row+1,status[offset+row]);
+//
+//    }
+//
+//}
+
+void LedControl::setColumn(int addr, int col, byte value) {
+    byte val;
+
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(col<0 || col>7) 
+        return;
+    for(int row=0;row<8;row++) {
+        val=value >> (7-row);
+        val=val & 0x01;
+        setLed(addr,row,col,val);
+    }
+}
+
+void LedControl::setDigit(int addr, int digit, byte value, boolean dp) {
+    int offset;
+    byte v;
+
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(digit<0 || digit>7 || value>15)
+        return;
+    offset=addr*8;
+    v=pgm_read_byte_near(charTable + value); 
+    if(dp)
+        v|=B10000000;
+    status[offset+digit]=v;
+    spiTransfer(addr, digit+1,v);
+}
+
+void LedControl::setChar(int addr, int digit, char value, boolean dp) {
+    int offset;
+    byte index,v;
+
+    if(addr<0 || addr>=maxDevices)
+        return;
+    if(digit<0 || digit>7)
+        return;
+    offset=addr*8;
+    index=(byte)value;
+    if(index >127) {
+        //no defined beyond index 127, so we use the space char
+        index=32;
+    }
+    v=pgm_read_byte_near(charTable + index); 
+    if(dp)
+        v|=B10000000;
+    status[offset+digit]=v;
+    spiTransfer(addr, digit+1,v);
+}
+
+void LedControl::spiTransfer(int addr, volatile byte opcode, volatile byte data) {
+    //Create an array with the data to shift out
+    int offset=addr*2;
+    int maxbytes=maxDevices*2;
+
+    for(int i=0;i<maxbytes;i++)
+        spidata[i]=(byte)0;
+    //put our device data into the array
+    spidata[offset+1]=opcode;
+    spidata[offset]=data;
+    //enable the line 
+    digitalWrite(SPI_CS,LOW);
+    //Now shift out the data 
+    for(int i=maxbytes;i>0;i--)
+        shiftOut(SPI_MOSI,SPI_CLK,MSBFIRST,spidata[i-1]);
+    //latch the data onto the display
+    digitalWrite(SPI_CS,HIGH);
+}    
+
+
